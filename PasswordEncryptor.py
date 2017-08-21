@@ -2,6 +2,7 @@ import base64
 import uuid
 import json
 import logging
+import botocore
 
 try:
     from urllib.parse import urlparse
@@ -39,6 +40,10 @@ def failed_response(httplib, failed_reason, event_arg, response_arg):
         event_arg, response_arg, status='FAILED',
         reason=failed_reason
     )
+
+def key_exists(s3_client, bucket, key):
+    results = s3_client.list_objects(Bucket=bucket, Prefix=key)
+    return 'Contents' in results
 
 def handler_impl(event, context, boto, httplib):
     logger.info("ResponseUrl is " + event['ResponseURL'])
@@ -80,6 +85,15 @@ def handler_impl(event, context, boto, httplib):
 
         if 'BucketName' in res_props:
             logger.info("BucketName specified, try to write many random passwords")
+            bucket = res_props["BucketName"]
+            key = event["StackId"] + "_" + event["LogicalResourceId"]
+            s3_client = boto.client("s3")
+            if key_exists(s3_client, bucket, key):
+                object_response = s3_client.get_object(Bucket=bucket, Key=key)
+                file_contents = object_response['Body'].read().decode('utf-8')
+                json_contents = json.loads(file_contents)
+            else:
+                pass
 
 
         response['Data'] = data
