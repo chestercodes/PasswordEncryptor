@@ -52,6 +52,8 @@ class FakeS3(object):
         return {"Object": FakeS3Object()}
     def get_object(self, Bucket, Key):
         return ""
+    def put_object(self, Bucket, Key, Body):
+        return ""
     def list_objects(self, Bucket, Prefix):
         return {}
 class FakeBoto(object):

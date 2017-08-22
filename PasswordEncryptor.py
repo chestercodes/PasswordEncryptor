@@ -2,7 +2,7 @@ import base64
 import uuid
 import json
 import logging
-import botocore
+import os
 
 try:
     from urllib.parse import urlparse
@@ -11,6 +11,10 @@ except ImportError:
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
+
+random_passwords_to_encrypt = 12
+password_chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_!"
+password_length = 15
 
 # This function takes in the values from the stack which are sensitive and encrypts them with the key specified.abs
 # It then returns them to be used in the CustomResource in the cloudformation stack
@@ -45,6 +49,23 @@ def key_exists(s3_client, bucket, key):
     results = s3_client.list_objects(Bucket=bucket, Prefix=key)
     return 'Contents' in results
 
+def encrypt(kms_client, key_id, plaintext):
+    encrypted = kms_client.encrypt(KeyId=key_id, Plaintext=plaintext)
+    val = base64.b64encode(encrypted['CiphertextBlob'])
+    return val.decode("utf-8")
+
+def get_random_password():
+    password = ""
+    random_bytes = os.urandom(password_length)
+    for n in range(0, password_length):
+        random_byte = random_bytes[n]
+        mod64 = int(random_byte) % 64
+        password += password_chars[mod64]
+    return password
+
+def get_password_name(n):
+    return "Password" + str(n) + "Encrypted"
+
 def handler_impl(event, context, boto, httplib):
     logger.info("ResponseUrl is " + event['ResponseURL'])
     response = {
@@ -78,10 +99,9 @@ def handler_impl(event, context, boto, httplib):
         encrypt_placeholder = "Encrypt_"
         to_encrypt_keys =  filter(lambda key: key.startswith(encrypt_placeholder), res_props.keys())
         for to_encrypt_key in to_encrypt_keys:
-            encrypted = kms_client.encrypt(KeyId=key_id, Plaintext=res_props[to_encrypt_key])
-            val = base64.b64encode(encrypted['CiphertextBlob'])
             name = to_encrypt_key[len(encrypt_placeholder):] + "Encrypted"
-            data[name] = val.decode("utf-8")
+            plaintext = res_props[to_encrypt_key]
+            data[name] = encrypt(kms_client, key_id, plaintext)
 
         if 'BucketName' in res_props:
             logger.info("BucketName specified, try to write many random passwords")
@@ -93,8 +113,18 @@ def handler_impl(event, context, boto, httplib):
                 file_contents = object_response['Body'].read().decode('utf-8')
                 json_contents = json.loads(file_contents)
             else:
-                pass
-
+                passwords = {}
+                for n in range(0, random_passwords_to_encrypt + 1):
+                    password_name = get_password_name(n)
+                    random_password = get_random_password()
+                    password_encrypted = encrypt(kms_client, key_id, random_password)
+                    passwords[password_name] = password_encrypted
+                passwords_as_json = json.dumps(passwords)
+                s3_client.put_object(Bucket=bucket, Key=key, Body=passwords_as_json)
+                json_contents = passwords
+            for n in range(0, random_passwords_to_encrypt - len(to_encrypt_keys)):
+                password_name = get_password_name(n)
+                data[password_name] = json_contents[password_name]
 
         response['Data'] = data
         response['Reason'] = 'The value was successfully encrypted'
