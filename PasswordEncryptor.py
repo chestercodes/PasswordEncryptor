@@ -97,7 +97,7 @@ def handler_impl(event, context, boto, httplib):
         key_id = res_props['KeyId']
         data = dict()
         encrypt_placeholder = "Encrypt_"
-        to_encrypt_keys =  filter(lambda key: key.startswith(encrypt_placeholder), res_props.keys())
+        to_encrypt_keys =  list(filter(lambda key: key.startswith(encrypt_placeholder), res_props.keys()))
         for to_encrypt_key in to_encrypt_keys:
             name = to_encrypt_key[len(encrypt_placeholder):] + "Encrypted"
             plaintext = res_props[to_encrypt_key]
@@ -122,9 +122,10 @@ def handler_impl(event, context, boto, httplib):
                 passwords_as_json = json.dumps(passwords)
                 s3_client.put_object(Bucket=bucket, Key=key, Body=passwords_as_json)
                 json_contents = passwords
-            for n in range(0, random_passwords_to_encrypt - len(to_encrypt_keys)):
+            for n in range(1, random_passwords_to_encrypt - len(to_encrypt_keys) + 1):
                 password_name = get_password_name(n)
-                data[password_name] = json_contents[password_name]
+                if password_name in json_contents:
+                    data[password_name] = json_contents[password_name]
 
         response['Data'] = data
         response['Reason'] = 'The value was successfully encrypted'
